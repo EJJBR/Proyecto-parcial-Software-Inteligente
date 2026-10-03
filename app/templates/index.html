@@ -3,12 +3,137 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Asistente de compras</title>
+    <meta name="theme-color" content="#2e8b57">
+    <title>Asistente de Compras Inteligente para Bodegas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
   </head>
   <body>
-    <main>
-      <h1>Asistente de Compras Inteligente para Bodegas</h1>
-      <p>La interfaz estará disponible en la siguiente fase.</p>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Inicio">
+        <span class="brand-mark" aria-hidden="true">🛒</span>
+        <span>
+          <strong>Asistente de Compras</strong>
+          <span class="brand-subtitle">Inteligente para Bodegas</span>
+        </span>
+      </a>
+      <div class="store-name">
+        <span class="store-dot" aria-hidden="true"></span>
+        <span>Bodega La Esquina</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel catalog-panel" aria-labelledby="catalog-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Tu inventario</p>
+            <h2 id="catalog-title">Productos disponibles</h2>
+          </div>
+          <span id="catalog-count" class="count-badge" aria-live="polite">—</span>
+        </div>
+
+        <label class="search-box" for="product-search">
+          <span aria-hidden="true">⌕</span>
+          <span class="visually-hidden">Buscar productos</span>
+          <input id="product-search" type="search" placeholder="Buscar producto..." autocomplete="off">
+        </label>
+
+        <div id="category-filters" class="category-filters" aria-label="Filtrar por categoría">
+          <button class="filter-chip is-active" type="button" data-category="Todos" aria-pressed="true">Todos</button>
+        </div>
+        <p id="catalog-status" class="section-status" role="status">Cargando catálogo…</p>
+        <div id="catalog-products" class="catalog-products" aria-live="polite"></div>
+      </section>
+
+      <section class="panel chat-panel" aria-labelledby="chat-title">
+        <div class="panel-heading chat-heading">
+          <div>
+            <p class="eyebrow">Planifica tu compra</p>
+            <h2 id="chat-title">Asistente de compras</h2>
+          </div>
+          <button id="new-conversation" class="button button-quiet" type="button">
+            <span aria-hidden="true">↻</span> Nueva conversación
+          </button>
+        </div>
+
+        <div id="chat-messages" class="chat-messages" aria-live="polite" aria-relevant="additions text" aria-label="Mensajes de la conversación"></div>
+        <div class="examples">
+          <p>Prueba con una de estas ideas</p>
+          <div class="example-list">
+            <button class="example-chip" type="button" data-example="Tengo S/1500, prioriza lácteos">Prioriza lácteos</button>
+            <button class="example-chip" type="button" data-example="Tengo S/1000, incluye arroz y excluye gaseosa">Incluye arroz</button>
+            <button class="example-chip" type="button" data-example="Tengo S/1200, prioriza bebidas y snacks">Bebidas y snacks</button>
+          </div>
+        </div>
+
+        <form id="message-form" class="composer">
+          <label class="visually-hidden" for="message-input">Escribe tu solicitud de compra</label>
+          <textarea id="message-input" name="mensaje" maxlength="500" rows="2" placeholder="Ej.: Tengo S/1500, prioriza lácteos…" aria-describedby="message-hint message-counter"></textarea>
+          <div class="composer-footer">
+            <span id="message-hint" class="composer-hint">Enter para enviar · Shift+Enter para nueva línea</span>
+            <span id="message-counter" class="character-counter">0/500</span>
+            <button id="send-button" class="button button-primary" type="submit">
+              <span>Enviar</span><span aria-hidden="true">➤</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel recommendation-panel" aria-labelledby="recommendation-title">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Tu próxima reposición</p>
+            <h2 id="recommendation-title">Recomendación de compras</h2>
+          </div>
+          <span class="heading-icon" aria-hidden="true">✦</span>
+        </div>
+
+        <div id="recommendation-empty" class="recommendation-empty">
+          <span class="empty-illustration" aria-hidden="true">🧺</span>
+          <h3>Tu lista aparecerá aquí</h3>
+          <p>Cuéntale al asistente cuánto quieres invertir y qué productos necesitas.</p>
+        </div>
+
+        <div id="recommendation-result" class="recommendation-result" hidden>
+          <div class="source-row">
+            <span id="recommendation-source" class="source-badge"></span>
+            <details id="fallback-details" class="fallback-details" hidden>
+              <summary>Ver detalle</summary>
+              <p id="fallback-reason"></p>
+            </details>
+          </div>
+          <section class="explanation-section" aria-labelledby="explanation-title">
+            <h3 id="explanation-title">Resumen de la propuesta</h3>
+            <p id="recommendation-explanation" class="recommendation-explanation"></p>
+          </section>
+          <div class="recommendation-table-wrap">
+            <table class="recommendation-table">
+              <thead>
+                <tr>
+                  <th scope="col">Producto</th>
+                  <th scope="col">Cant.</th>
+                  <th scope="col">Precio</th>
+                  <th scope="col">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody id="recommendation-products"></tbody>
+              <tfoot>
+                <tr>
+                  <th colspan="3" scope="row">Total estimado</th>
+                  <td id="recommendation-total">—</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p class="budget-line">
+            <span>Presupuesto: <strong id="recommendation-budget">—</strong></span>
+            <span class="budget-separator" aria-hidden="true">·</span>
+            <span>Sobrante: <strong id="recommendation-leftover">—</strong></span>
+          </p>
+        </div>
+      </aside>
     </main>
+    <div id="app-notice" class="visually-hidden" role="status" aria-live="polite"></div>
   </body>
 </html>
