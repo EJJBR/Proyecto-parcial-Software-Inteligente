@@ -1,0 +1,25 @@
+# Nucleo del proyecto (cadena, difusa, fitness, algoritmo genetico, SQLite):
+# no requiere librerias externas, todo es libreria estandar de Python (sqlite3, random).
+
+# Para correr y editar los notebooks (.ipynb):
+notebook==7.2.2
+ipykernel==6.29.5
+nbformat==5.10.4
+nbclient==0.10.0
+nbconvert==7.16.4
+
+# Para el grafico de convergencia del algoritmo genetico:
+matplotlib==3.9.2
+
+# Opcional: solo si van a regenerar los diagramas de arquitectura/MEER (no es necesario para correr el proyecto):
+graphviz==0.21
+
+# --- Backend (nuevo) ---
+# Interfaz web / API:
+Flask==3.1.3
+# Lectura de variables desde .env:
+python-dotenv==1.2.2
+# IA generativa (cliente de Groq; se usa desde el paso 5):
+groq==1.7.0
+# Pruebas automaticas:
+pytest==9.1.1
