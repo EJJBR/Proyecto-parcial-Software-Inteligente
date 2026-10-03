@@ -38,10 +38,27 @@ class ResultadoOrquestacion:
     usada_ia: bool | None = None
     motivo_respaldo: str | None = None
     id_recomendacion: int | None = None
+    codigo_error: Literal[
+        "limite_velocidad",
+        "ia_no_disponible",
+        "entrada_invalida",
+        "interno",
+    ] | None = None
+    id_solicitud: int | None = None
 
 
-def _resultado_error(mensaje: str) -> ResultadoOrquestacion:
-    return ResultadoOrquestacion(tipo="error", mensaje=mensaje)
+def _resultado_error(
+    mensaje: str,
+    codigo_error: Literal[
+        "limite_velocidad",
+        "ia_no_disponible",
+        "entrada_invalida",
+        "interno",
+    ],
+) -> ResultadoOrquestacion:
+    return ResultadoOrquestacion(
+        tipo="error", mensaje=mensaje, codigo_error=codigo_error
+    )
 
 
 def _validar_mensajes(mensajes: Sequence[str]) -> list[str]:
@@ -82,25 +99,31 @@ def procesar_mensajes(
     try:
         mensajes_validos = _validar_mensajes(mensajes)
     except ValueError as error:
-        return _resultado_error(str(error))
+        return _resultado_error(str(error), "entrada_invalida")
 
     try:
         if conn.execute(
             "SELECT 1 FROM USUARIO WHERE id_usuario = ?", (id_usuario,)
         ).fetchone() is None:
-            return _resultado_error("No se encontró el usuario de bodega configurado.")
+            return _resultado_error(
+                "No se encontró el usuario de bodega configurado.", "interno"
+            )
         catalogo = cargar_catalogo(conn)
     except sqlite3.Error:
-        return _resultado_error("No se pudo cargar la información de la bodega.")
+        return _resultado_error(
+            "No se pudo cargar la información de la bodega.", "interno"
+        )
 
     try:
         interpretacion = _interpretar(
             mensajes_validos, catalogo, cliente, sleep_fn
         )
     except ErrorLimiteVelocidad as error:
-        return _resultado_error(str(error))
+        return _resultado_error(str(error), "limite_velocidad")
     except ErrorIA as error:
-        return _resultado_error(f"No se pudo interpretar la solicitud: {error}")
+        return _resultado_error(
+            f"No se pudo interpretar la solicitud: {error}", "ia_no_disponible"
+        )
 
     if (
         interpretacion.faltantes
@@ -137,12 +160,21 @@ def procesar_mensajes(
         if conn.in_transaction:
             conn.rollback()
         return _resultado_error(
-            "No se pudo calcular la recomendación con los datos proporcionados."
+            "No se pudo calcular la recomendación con los datos proporcionados.",
+            "interno",
+        )
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        return _resultado_error(
+            "No se pudo calcular la recomendación con los datos proporcionados.",
+            "interno",
         )
 
     if conn.in_transaction:
         return _resultado_error(
-            "No se pudo guardar la recomendación porque la conexión ya tiene una transacción activa."
+            "No se pudo guardar la recomendación porque la conexión ya tiene una transacción activa.",
+            "interno",
         )
 
     texto_original = "\n".join(mensajes_validos)
@@ -186,10 +218,10 @@ def procesar_mensajes(
         conn.commit()
     except (ValueError, sqlite3.Error):
         conn.rollback()
-        return _resultado_error("No se pudo guardar la recomendación.")
+        return _resultado_error("No se pudo guardar la recomendación.", "interno")
     except Exception:
         conn.rollback()
-        raise
+        return _resultado_error("No se pudo guardar la recomendación.", "interno")
 
     return ResultadoOrquestacion(
         tipo="recomendacion",
@@ -201,4 +233,5 @@ def procesar_mensajes(
         usada_ia=explicacion.usada_ia,
         motivo_respaldo=explicacion.motivo_respaldo,
         id_recomendacion=id_recomendacion,
+        id_solicitud=id_solicitud,
     )
