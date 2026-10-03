@@ -23,6 +23,7 @@ _FORMATO_MONEDA = re.compile(r"S/\s*[\d,]+\.\d{2}")
 class Explicacion:
     texto: str
     usada_ia: bool
+    motivo_respaldo: str | None = None
 
 
 def _normalizar(texto: str) -> str:
@@ -83,6 +84,11 @@ def _construir_datos(
     diferencia = presupuesto - costo_total
 
     recomendados: list[dict[str, Any]] = []
+    agrupados_por_demanda: dict[str, list[str]] = {
+        "alta": [],
+        "media": [],
+        "baja": [],
+    }
     no_comprados: list[str] = []
     bajo_tope: list[dict[str, Any]] = []
     perecibles_limitados: list[str] = []
@@ -100,17 +106,17 @@ def _construir_datos(
             )
         if perecibilidad in {"alto", "medio"}:
             perecibles_limitados.append(nombre)
-        recomendados.append(
-            {
-                "nombre": nombre,
-                "unidades": int(cantidad),
-                "categoria": str(producto["categoria"]),
-                "demanda": _etiqueta_demanda(producto["ventas_4sem"]),
-                "vida_util": vida_util,
-                "llego_al_limite": llego_al_tope,
-                "limite_en_unidades": int(tope),
-            }
-        )
+        demanda = _etiqueta_demanda(producto["ventas_4sem"])
+        agrupados_por_demanda[demanda].append(nombre)
+        recomendados.append({
+            "nombre": nombre,
+            "unidades": int(cantidad),
+            "categoria": str(producto["categoria"]),
+            "demanda": demanda,
+            "vida_util": vida_util,
+            "llego_al_limite": llego_al_tope,
+            "limite_en_unidades": int(tope),
+        })
 
     presupuesto_limito = (
         0 <= diferencia < presupuesto * 0.05 and bool(bajo_tope)
@@ -122,6 +128,7 @@ def _construir_datos(
     )
     return {
         "articulos_recomendados": recomendados,
+        "articulos_agrupados_por_demanda": agrupados_por_demanda,
         "articulos_no_comprados": no_comprados,
         "costo_total": _dinero(costo_total),
         "presupuesto": _dinero(presupuesto),
@@ -194,9 +201,41 @@ def _productos_mencionados(texto: str, catalogo: Sequence[Mapping[str, Any]]) ->
     for producto in catalogo:
         nombre = str(producto["nombre"])
         canonico = _normalizar(nombre)
-        if re.search(r"(?<!\w)" + re.escape(canonico) + r"(?!\w)", normalizado):
+        nombre_corto = canonico.split()[0]
+        if (
+            re.search(r"(?<!\w)" + re.escape(canonico) + r"(?!\w)", normalizado)
+            or re.search(r"(?<!\w)" + re.escape(nombre_corto) + r"(?!\w)", normalizado)
+        ):
             mencionados.add(nombre)
     return mencionados
+
+
+def _etiqueta_demanda_contradictoria(
+    texto: str,
+    datos: Mapping[str, Any],
+    catalogo: Sequence[Mapping[str, Any]],
+) -> bool:
+    etiquetas_por_producto = {
+        articulo["nombre"]: articulo["demanda"]
+        for articulo in datos["articulos_recomendados"]
+    }
+    for oracion in re.split(r"(?<=[.!?])\s+", texto):
+        normalizada = _normalizar(oracion)
+        etiquetas = {
+            etiqueta
+            for etiqueta in ("alta", "media", "baja")
+            if re.search(r"\b" + etiqueta + r"\b", normalizada)
+        }
+        if len(etiquetas) != 1:
+            continue
+        etiqueta = next(iter(etiquetas))
+        productos_en_oracion = _productos_mencionados(oracion, catalogo)
+        if any(
+            etiquetas_por_producto.get(nombre) != etiqueta
+            for nombre in productos_en_oracion
+        ):
+            return True
+    return False
 
 
 def _violaciones(
@@ -234,6 +273,8 @@ def _violaciones(
     )
     if mencionados - permitidos:
         violaciones.append("presenta como compra un producto no recomendado")
+    if _etiqueta_demanda_contradictoria(texto, datos, catalogo):
+        violaciones.append("asigna una etiqueta de demanda incorrecta a un producto")
     return violaciones
 
 
@@ -245,7 +286,9 @@ def _prompt(datos: Mapping[str, Any], aviso: str | None = None) -> list[dict[str
         "ni recalcules datos, compras, precios o días. El dinero siempre va en soles y "
         "con el formato recibido, por ejemplo S/ 1,499.70; nunca uses $. No escribas "
         "nombres de campos ni términos técnicos internos. Usa las etiquetas de demanda "
-        "y vida útil tal como están, sin recalcularlas. Explica las compras, el costo "
+        "y vida útil tal como están, sin recalcularlas. Agrupa los artículos por la etiqueta "
+        "de demanda que ya tienen; no asignes una etiqueta a artículos de otro grupo ni uses "
+        "'todos' o 'todas' salvo que los hechos lo indiquen. Explica las compras, el costo "
         "frente al presupuesto, la influencia de las categorías prioritarias, los "
         "artículos de vida útil corta y si el presupuesto limitó la compra. No afirmes "
         "que todos llegaron a su límite: respeta el dato individual de cada artículo. "
@@ -271,10 +314,11 @@ def redactar_explicacion(
     respaldo = _respaldo(datos)
     try:
         cliente_activo = cliente if cliente is not None else crear_cliente_groq()
-    except ErrorIA:
-        return Explicacion(respaldo, False)
+    except ErrorIA as error:
+        return Explicacion(respaldo, False, str(error))
 
     aviso = None
+    fallos_por_intento: list[list[str]] = []
     for intento in range(2):
         try:
             texto = _solicitar_completado(
@@ -283,10 +327,15 @@ def redactar_explicacion(
                 temperatura=config.GROQ_TEMPERATURA_EXPLICACION,
                 max_tokens=config.GROQ_MAX_TOKENS_EXPLICACION,
             )
-        except ErrorIA:
-            return Explicacion(respaldo, False)
+        except ErrorIA as error:
+            return Explicacion(respaldo, False, str(error))
         fallos = _violaciones(texto, datos, catalogo)
         if not fallos:
             return Explicacion(texto, True)
+        fallos_por_intento.append(fallos)
         aviso = "; ".join(fallos)
-    return Explicacion(respaldo, False)
+    motivo = "; ".join(
+        f"{'Primer intento' if indice == 0 else 'Reintento'}: {', '.join(fallos)}"
+        for indice, fallos in enumerate(fallos_por_intento)
+    )
+    return Explicacion(respaldo, False, motivo)
