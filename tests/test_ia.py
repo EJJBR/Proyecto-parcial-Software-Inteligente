@@ -212,7 +212,7 @@ def test_fallo_api_en_explicacion_usa_respaldo(conn):
         cliente=ClienteFalso([TimeoutError("detalle privado")]),
     )
     assert not explicacion.usada_ia
-    assert "S/1500.00" in explicacion.texto
+    assert "S/ 1,500.00" in explicacion.texto
     assert "Arroz" in explicacion.texto
 
 
@@ -232,8 +232,8 @@ def test_explicacion_exitosa_indica_uso_de_ia(conn):
 
     assert explicacion.usada_ia
     datos_enviados = json.loads(cliente.llamadas[0]["messages"][1]["content"])
-    assert datos_enviados["productos_comprados"][0]["score_demanda"] == 0.9
-    assert datos_enviados["productos_comprados"][0]["cantidad_maxima"] == 26
+    assert datos_enviados["articulos_recomendados"][0]["demanda"] == "alta"
+    assert datos_enviados["articulos_recomendados"][0]["limite_en_unidades"] == 26
 
 
 @pytest.mark.parametrize("presupuesto", [-10, 0, "no es un monto"])
