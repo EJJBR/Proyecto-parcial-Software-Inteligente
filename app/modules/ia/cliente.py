@@ -1,5 +1,9 @@
 """Cliente Groq y conversion de errores externos a mensajes seguros en espanol."""
 import os
+import time
+from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import config
@@ -7,6 +11,21 @@ import config
 
 class ErrorIA(RuntimeError):
     """Error de IA con mensaje seguro que nunca expone credenciales."""
+
+
+class ErrorLimiteVelocidad(ErrorIA):
+    """Groq rechazó la solicitud por límite de velocidad tras reintentos."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Hay muchas solicitudes a la IA en este momento. "
+            "Espera unos segundos e intenta de nuevo."
+        )
+
+
+_MAX_REINTENTOS_429 = 2
+_ESPERAS_REINTENTO_429 = (3.0, 6.0)
+_MAX_ESPERA_RETRY_AFTER = 10.0
 
 
 def _depuracion_activa() -> bool:
@@ -80,7 +99,11 @@ def crear_cliente_groq() -> Any:
         from groq import Groq
     except ImportError:
         raise ErrorIA("Falta instalar la dependencia groq en el entorno del proyecto.") from None
-    return Groq(api_key=clave, timeout=config.GROQ_TIMEOUT_SEGUNDOS)
+    return Groq(
+        api_key=clave,
+        timeout=config.GROQ_TIMEOUT_SEGUNDOS,
+        max_retries=0,
+    )
 
 
 def _mensaje_error_groq(error: Exception) -> str:
@@ -99,27 +122,73 @@ def _mensaje_error_groq(error: Exception) -> str:
     return "Ocurrió un error al comunicarse con el servicio de Groq."
 
 
+def _codigo_estado(error: Exception) -> int | None:
+    codigo = getattr(error, "status_code", None)
+    if codigo is None:
+        respuesta = getattr(error, "response", None)
+        codigo = getattr(respuesta, "status_code", None)
+    return codigo if isinstance(codigo, int) else None
+
+
+def _retry_after(error: Exception) -> float | None:
+    respuesta = getattr(error, "response", None)
+    headers = getattr(respuesta, "headers", None)
+    if not isinstance(headers, Mapping):
+        return None
+    valor = headers.get("retry-after")
+    if valor is None:
+        return None
+    try:
+        return float(valor)
+    except (TypeError, ValueError):
+        try:
+            fecha = parsedate_to_datetime(str(valor))
+            if fecha.tzinfo is None:
+                fecha = fecha.replace(tzinfo=timezone.utc)
+            return (fecha - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+
 def _solicitar_completado(
     cliente: Any,
     mensajes: list[dict[str, str]],
     *,
     temperatura: float,
     max_tokens: int,
+    sleep_fn: Callable[[float], None] = time.sleep,
 ) -> str:
     """Ejecuta chat.completions.create, aplicando la traduccion de errores."""
     if not config.GROQ_MODEL or config.GROQ_MODEL == "elige_un_modelo_vigente":
         raise ErrorIA(
             "Falta configurar GROQ_MODEL con un modelo vigente desde la consola de Groq."
         )
-    try:
-        respuesta = cliente.chat.completions.create(
-            model=config.GROQ_MODEL,
-            messages=mensajes,
-            temperature=temperatura,
-            max_tokens=max_tokens,
-        )
-    except Exception as error:
-        raise ErrorIA(_mensaje_error_groq(error)) from None
+    for intento in range(_MAX_REINTENTOS_429 + 1):
+        try:
+            respuesta = cliente.chat.completions.create(
+                model=config.GROQ_MODEL,
+                messages=mensajes,
+                temperature=temperatura,
+                max_tokens=max_tokens,
+            )
+            break
+        except Exception as error:
+            if _codigo_estado(error) != 429:
+                raise ErrorIA(_mensaje_error_groq(error)) from None
+            if intento >= _MAX_REINTENTOS_429:
+                raise ErrorLimiteVelocidad() from None
+
+            retry_after = _retry_after(error)
+            if retry_after is not None and retry_after > _MAX_ESPERA_RETRY_AFTER:
+                raise ErrorLimiteVelocidad() from None
+            espera = (
+                retry_after
+                if retry_after is not None and retry_after >= 0
+                else _ESPERAS_REINTENTO_429[intento]
+            )
+            sleep_fn(espera)
+    else:
+        raise ErrorLimiteVelocidad() from None
 
     message = None
     try:

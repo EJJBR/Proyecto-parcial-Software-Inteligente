@@ -1,5 +1,6 @@
 """Algoritmo genetico puro, independiente de infraestructura externa."""
 from .algoritmo import (
+    PresupuestoInviableError,
     ResultadoGenetico,
     calcular_topes,
     evaluar_cromosoma,
@@ -7,6 +8,7 @@ from .algoritmo import (
 )
 
 __all__ = [
+    "PresupuestoInviableError",
     "ResultadoGenetico",
     "calcular_topes",
     "evaluar_cromosoma",

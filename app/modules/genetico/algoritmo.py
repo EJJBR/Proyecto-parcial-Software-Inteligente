@@ -10,6 +10,7 @@ from app.modules.difusa import peso_categoria, riesgo_merma, score_demanda
 
 Producto = Mapping[str, Any]
 Solicitud = Mapping[str, Any]
+TOLERANCIA_PRESUPUESTO = 1e-9
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,11 @@ class ResultadoGenetico:
     costo_total: float
     fitness: float
     historial_mejor_fitness: list[float]
+    reparado: bool = False
+
+
+class PresupuestoInviableError(ValueError):
+    """El costo mínimo de los productos obligatorios supera el presupuesto."""
 
 
 def _preparar_restricciones(
@@ -126,6 +132,46 @@ def _reparar_cromosoma(
     return cromosoma
 
 
+def _reparar_presupuesto(
+    cromosoma: Sequence[int],
+    catalogo: Sequence[Producto],
+    solicitud: Solicitud,
+    indices_forzados: set[int],
+    indices_excluidos: set[int],
+) -> tuple[list[int], float, float, bool]:
+    copia = list(cromosoma)
+    costo, fitness = evaluar_cromosoma(copia, catalogo, solicitud)
+    if costo <= solicitud["presupuesto"] + TOLERANCIA_PRESUPUESTO:
+        return copia, costo, fitness, False
+
+    while costo > solicitud["presupuesto"] + TOLERANCIA_PRESUPUESTO:
+        mejor_candidato: list[int] | None = None
+        mejor_costo = costo
+        mejor_fitness = float("-inf")
+        for indice, cantidad in enumerate(copia):
+            minimo = 1 if indice in indices_forzados else 0
+            if indice in indices_excluidos or cantidad <= minimo:
+                continue
+            candidato = copia[:]
+            candidato[indice] -= 1
+            costo_candidato, fitness_candidato = evaluar_cromosoma(
+                candidato, catalogo, solicitud
+            )
+            if fitness_candidato > mejor_fitness:
+                mejor_candidato = candidato
+                mejor_costo = costo_candidato
+                mejor_fitness = fitness_candidato
+        if mejor_candidato is None:
+            raise PresupuestoInviableError(
+                "El costo mínimo de los productos obligatorios supera el presupuesto."
+            )
+        copia = mejor_candidato
+        costo = mejor_costo
+        fitness = mejor_fitness
+
+    return copia, costo, fitness, True
+
+
 def ejecutar_algoritmo_genetico(
     catalogo: Sequence[Producto], solicitud: Solicitud, semilla: int | None = None
 ) -> ResultadoGenetico:
@@ -133,6 +179,13 @@ def ejecutar_algoritmo_genetico(
     if len(catalogo) != config.NUM_GENES:
         raise ValueError(f"El catalogo debe tener {config.NUM_GENES} productos.")
     indices_forzados, indices_excluidos = _preparar_restricciones(catalogo, solicitud)
+    costo_minimo_forzados = sum(
+        float(catalogo[indice]["precio_compra"]) for indice in indices_forzados
+    )
+    if costo_minimo_forzados > solicitud["presupuesto"] + TOLERANCIA_PRESUPUESTO:
+        raise PresupuestoInviableError(
+            "El costo mínimo de los productos obligatorios supera el presupuesto."
+        )
     topes = calcular_topes(catalogo)
     rng = random.Random(semilla)
 
@@ -187,4 +240,22 @@ def ejecutar_algoritmo_genetico(
 
     if mejor_cromosoma is None:
         raise RuntimeError("El algoritmo genetico no produjo ninguna generacion.")
-    return ResultadoGenetico(mejor_cromosoma, mejor_costo, mejor_fitness, historial)
+    (
+        cromosoma_final,
+        costo_final,
+        fitness_final,
+        reparado,
+    ) = _reparar_presupuesto(
+        mejor_cromosoma,
+        catalogo,
+        solicitud,
+        indices_forzados,
+        indices_excluidos,
+    )
+    return ResultadoGenetico(
+        cromosoma_final,
+        costo_final,
+        fitness_final,
+        historial,
+        reparado,
+    )

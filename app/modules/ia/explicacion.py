@@ -3,13 +3,19 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import json
 import re
+import time
 import unicodedata
-from typing import Any
+from typing import Any, Callable
 
 import config
 from app.modules.difusa import score_demanda
 from app.modules.genetico import ResultadoGenetico, calcular_topes
-from .cliente import ErrorIA, _solicitar_completado, crear_cliente_groq
+from .cliente import (
+    ErrorIA,
+    ErrorLimiteVelocidad,
+    _solicitar_completado,
+    crear_cliente_groq,
+)
 
 
 _TERMINOS_PROHIBIDOS = re.compile(
@@ -308,6 +314,7 @@ def redactar_explicacion(
     catalogo: Sequence[Mapping[str, Any]],
     *,
     cliente: Any = None,
+    sleep_fn: Callable[[float], None] | None = None,
 ) -> Explicacion:
     """Redacta hechos calculados; reintenta una vez y usa respaldo ante fallos."""
     datos = _construir_datos(solicitud, resultado, catalogo)
@@ -326,6 +333,13 @@ def redactar_explicacion(
                 _prompt(datos, aviso),
                 temperatura=config.GROQ_TEMPERATURA_EXPLICACION,
                 max_tokens=config.GROQ_MAX_TOKENS_EXPLICACION,
+                sleep_fn=sleep_fn or time.sleep,
+            )
+        except ErrorLimiteVelocidad as error:
+            return Explicacion(
+                respaldo,
+                False,
+                f"Límite de velocidad de la API: {error}",
             )
         except ErrorIA as error:
             return Explicacion(respaldo, False, str(error))

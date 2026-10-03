@@ -4,11 +4,16 @@ from dataclasses import dataclass
 import json
 import math
 import re
+import time
 import unicodedata
-from typing import Any
+from typing import Any, Callable
 
 import config
-from .cliente import ErrorIA, _solicitar_completado, crear_cliente_groq
+from .cliente import (
+    ErrorIA,
+    _solicitar_completado,
+    crear_cliente_groq,
+)
 
 
 @dataclass(frozen=True)
@@ -274,6 +279,7 @@ def interpretar_solicitud(
     historial: Any = None,
     *,
     cliente: Any = None,
+    sleep_fn: Callable[[float], None] | None = None,
 ) -> InterpretacionSolicitud:
     """Extrae una solicitud y valida todos los nombres y valores contra el catálogo."""
     if not isinstance(texto, str) or not texto.strip():
@@ -293,6 +299,7 @@ def interpretar_solicitud(
         mensajes,
         temperatura=config.GROQ_TEMPERATURA_INTERPRETACION,
         max_tokens=config.GROQ_MAX_TOKENS_INTERPRETACION,
+        sleep_fn=sleep_fn or time.sleep,
     )
 
     bruto: dict[str, Any] | None = None
@@ -318,6 +325,7 @@ def interpretar_solicitud(
                 mensajes,
                 temperatura=config.GROQ_TEMPERATURA_INTERPRETACION,
                 max_tokens=config.GROQ_MAX_TOKENS_INTERPRETACION,
+                sleep_fn=sleep_fn or time.sleep,
             )
 
     assert bruto is not None
