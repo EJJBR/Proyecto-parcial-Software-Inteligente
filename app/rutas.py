@@ -204,6 +204,8 @@ def solicitud():
             presupuesto=resultado.presupuesto,
             fitness=resultado.fitness,
             explicacion=resultado.explicacion,
+            resumen_ia=getattr(resultado, "resumen_ia", None),
+            detalle_explicacion=getattr(resultado, "detalle_explicacion", None),
             usada_ia=resultado.usada_ia,
             motivo_respaldo=resultado.motivo_respaldo,
             id_solicitud=resultado.id_solicitud,

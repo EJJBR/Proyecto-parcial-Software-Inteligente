@@ -58,7 +58,11 @@ def _conteos(conn):
 
 def test_flujo_completo_guarda_y_devuelve_recomendacion(conn):
     conteos_iniciales = _conteos(conn)
-    cliente = ClienteFalso([_json_interpretacion(), _respuesta_valida()])
+    resumen_valido = (
+        "La planificación consideró el presupuesto disponible y las prioridades "
+        "indicadas. También equilibró las necesidades de reposición."
+    )
+    cliente = ClienteFalso([_json_interpretacion(), resumen_valido])
 
     resultado = orquestador.procesar_mensajes(
         conn, ["Tengo S/ 1500, incluye Arroz"], cliente=cliente, semilla=42
@@ -69,8 +73,12 @@ def test_flujo_completo_guarda_y_devuelve_recomendacion(conn):
     assert resultado.presupuesto == 1500
     assert resultado.costo_total is not None
     assert resultado.fitness is not None
-    assert resultado.explicacion == _respuesta_valida()
     assert resultado.usada_ia is True
+    assert resultado.resumen_ia == resumen_valido
+    assert resultado.detalle_explicacion
+    assert resultado.explicacion == (
+        f"{resultado.resumen_ia}\n\n{resultado.detalle_explicacion}"
+    )
     assert resultado.motivo_respaldo is None
     assert any(p["nombre"] == "Arroz" and p["cantidad"] > 0 for p in resultado.productos)
     assert _conteos(conn) == (
@@ -195,12 +203,16 @@ def test_usa_solo_los_cinco_mensajes_mas_recientes(conn):
 def test_dos_corridas_misma_frase_guardan_dos_pares(conn):
     conteos_iniciales = _conteos(conn)
     frase = "Tengo S/ 1500, incluye Arroz"
+    resumen_valido = (
+        "La planificación consideró el presupuesto disponible y las prioridades "
+        "indicadas. También equilibró las necesidades de reposición."
+    )
     cliente = ClienteFalso(
         [
             _json_interpretacion(),
-            _respuesta_valida(),
+            resumen_valido,
             _json_interpretacion(),
-            _respuesta_valida(),
+            resumen_valido,
         ]
     )
 

@@ -16,6 +16,9 @@
   const recommendationResult = document.querySelector("#recommendation-result");
   const recommendationRows = document.querySelector("#recommendation-products");
   const recommendationSource = document.querySelector("#recommendation-source");
+  const aiSummarySection = document.querySelector("#ai-summary-section");
+  const recommendationExplanation = document.querySelector("#recommendation-explanation");
+  const recommendationDetail = document.querySelector("#recommendation-detail");
   const fallbackDetails = document.querySelector("#fallback-details");
   const fallbackReason = document.querySelector("#fallback-reason");
   const understoodHint = document.querySelector("#understood-hint");
@@ -238,7 +241,10 @@
     recommendationSource.classList.toggle("local", !usedAI);
     fallbackDetails.hidden = usedAI || !data.motivo_respaldo;
     fallbackReason.textContent = data.motivo_respaldo || "";
-    document.querySelector("#recommendation-explanation").textContent = data.explicacion || "";
+    const summary = typeof data.resumen_ia === "string" ? data.resumen_ia : "";
+    aiSummarySection.hidden = !summary;
+    recommendationExplanation.textContent = summary;
+    recommendationDetail.textContent = data.detalle_explicacion || data.explicacion || "";
     recommendationRows.replaceChildren();
 
     (Array.isArray(data.productos) ? data.productos : []).forEach((product) => {

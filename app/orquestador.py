@@ -12,14 +12,12 @@ from app.modules.genetico import (
     PresupuestoInviableError,
     ejecutar_algoritmo_genetico,
 )
-from app.modules.ia import (
-    ErrorIA,
-    Explicacion,
-    InterpretacionSolicitud,
-    interpretar_solicitud,
-    redactar_explicacion,
-)
+from app.modules.ia import ErrorIA, InterpretacionSolicitud, interpretar_solicitud
 from app.modules.ia.cliente import ErrorLimiteVelocidad
+from app.modules.ia.explicacion import (
+    ExplicacionRecomendacion,
+    redactar_resumen_explicacion,
+)
 
 
 ID_USUARIO_POR_DEFECTO = 1
@@ -46,6 +44,8 @@ class ResultadoOrquestacion:
     ] | None = None
     id_solicitud: int | None = None
     entendido: dict[str, Any] | None = None
+    resumen_ia: str | None = None
+    detalle_explicacion: str | None = None
 
 
 def _resultado_error(
@@ -140,7 +140,7 @@ def procesar_mensajes(
         resultado_genetico = ejecutar_algoritmo_genetico(
             catalogo, interpretacion.solicitud, semilla=semilla
         )
-        explicacion: Explicacion = redactar_explicacion(
+        explicacion: ExplicacionRecomendacion = redactar_resumen_explicacion(
             interpretacion.solicitud,
             resultado_genetico,
             catalogo,
@@ -233,6 +233,8 @@ def procesar_mensajes(
         explicacion=explicacion.texto,
         usada_ia=explicacion.usada_ia,
         motivo_respaldo=explicacion.motivo_respaldo,
+        resumen_ia=explicacion.resumen_ia,
+        detalle_explicacion=explicacion.detalle_codigo,
         id_recomendacion=id_recomendacion,
         id_solicitud=id_solicitud,
         entendido={

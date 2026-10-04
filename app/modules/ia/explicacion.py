@@ -33,6 +33,15 @@ class Explicacion:
     motivo_respaldo: str | None = None
 
 
+@dataclass(frozen=True)
+class ExplicacionRecomendacion:
+    texto: str
+    usada_ia: bool
+    motivo_respaldo: str | None
+    resumen_ia: str | None
+    detalle_codigo: str
+
+
 def _normalizar(texto: str) -> str:
     descompuesto = unicodedata.normalize("NFKD", texto.casefold())
     sin_tildes = "".join(c for c in descompuesto if not unicodedata.combining(c))
@@ -369,3 +378,222 @@ def redactar_explicacion(
         for indice, fallos in enumerate(fallos_por_intento)
     )
     return Explicacion(respaldo, False, motivo)
+
+
+def _detalle_codigo(datos: Mapping[str, Any]) -> str:
+    partes: list[str] = []
+    grupos = datos["articulos_agrupados_por_demanda"]
+    detalle_demanda = [
+        f"demanda {nivel}: {', '.join(nombres)}"
+        for nivel, nombres in grupos.items()
+        if nombres
+    ]
+    if detalle_demanda:
+        partes.append(
+            "Según las ventas recientes, " + "; ".join(detalle_demanda) + "."
+        )
+    else:
+        partes.append("No hubo productos recomendados para agrupar por demanda.")
+
+    perecibles = datos["productos_perecibles_con_limite"]
+    if perecibles:
+        partes.append(
+            "Productos de vida útil corta: " + ", ".join(perecibles) + "."
+        )
+
+    bajo_tope = datos["articulos_por_debajo_del_limite"]
+    if bajo_tope:
+        partes.append(
+            "Productos por debajo de su límite: "
+            + ", ".join(
+                f"{articulo['nombre']} ({articulo['unidades']} de "
+                f"{articulo['limite_en_unidades']})"
+                for articulo in bajo_tope
+            )
+            + "."
+        )
+
+    categorias = datos["categorias_prioritarias"]
+    if categorias:
+        partes.append("Categorías priorizadas: " + ", ".join(categorias) + ".")
+
+    balance = datos["balance"]
+    partes.append(
+        f"El costo calculado es {datos['costo_total']} frente al presupuesto de "
+        f"{datos['presupuesto']}; {balance['tipo']} {balance['monto']}."
+    )
+    if datos["presupuesto_limito_la_compra"]:
+        partes.append("El presupuesto fue un factor limitante para la compra.")
+    else:
+        partes.append("El presupuesto no fue un factor limitante para la compra.")
+
+    incluidos = datos["productos_incluidos_a_solicitud"]
+    if incluidos:
+        partes.append(
+            "Productos incluidos a pedido: " + ", ".join(incluidos) + "."
+        )
+    excluidos = datos["productos_excluidos_a_solicitud"]
+    if excluidos:
+        partes.append(
+            "Productos excluidos a pedido: " + ", ".join(excluidos) + "."
+        )
+    return " ".join(partes)
+
+
+def _porcentaje_aproximado_usado(datos: Mapping[str, Any]) -> str:
+    costo = float(datos["costo_total"].replace("S/", "").replace(",", "").strip())
+    presupuesto = float(
+        datos["presupuesto"].replace("S/", "").replace(",", "").strip()
+    )
+    porcentaje = costo / presupuesto * 100 if presupuesto > 0 else 0
+    if porcentaje < 10:
+        return "una fracción pequeña del presupuesto"
+    if porcentaje < 40:
+        return "cerca de un tercio del presupuesto"
+    if porcentaje < 60:
+        return "cerca de la mitad del presupuesto"
+    if porcentaje < 80:
+        return "cerca de dos tercios del presupuesto"
+    if porcentaje <= 100:
+        return "la mayor parte del presupuesto, casi todo"
+    return "más que el presupuesto disponible"
+
+
+def _hechos_cualitativos(datos: Mapping[str, Any]) -> dict[str, Any]:
+    categorias = list(datos["categorias_prioritarias"])
+    balance = datos["balance"]
+    return {
+        "presupuesto_fue_factor_limitante": bool(
+            datos["presupuesto_limito_la_compra"]
+        ),
+        "situacion_presupuesto": balance["tipo"],
+        "categorias_priorizadas": categorias,
+        "hubo_productos_incluidos_a_pedido": bool(
+            datos["productos_incluidos_a_solicitud"]
+        ),
+        "hubo_productos_excluidos_a_pedido": bool(
+            datos["productos_excluidos_a_solicitud"]
+        ),
+        "porcentaje_aproximado_del_presupuesto_usado": (
+            _porcentaje_aproximado_usado(datos)
+        ),
+    }
+
+
+def _prompt_resumen(
+    hechos: Mapping[str, Any], aviso: str | None = None
+) -> list[dict[str, str]]:
+    instrucciones = (
+        "Redacta únicamente un resumen cualitativo de dos o tres frases en español "
+        "claro y natural para el dueño de una bodega. Usa solo los hechos recibidos. "
+        "No incluyas nombres de productos, cifras, números, porcentajes, listas ni "
+        "cantidades. No afirmes datos que no aparezcan en los hechos. Menciona de forma "
+        "breve la situación del presupuesto, las categorías priorizadas cuando existan "
+        "y si se atendieron inclusiones o exclusiones pedidas, sin nombrar productos. "
+        "El resumen no reemplaza el detalle factual que se presenta por separado."
+    )
+    if aviso:
+        instrucciones += " Corrige la respuesta anterior: " + aviso + "."
+    return [
+        {"role": "system", "content": instrucciones},
+        {"role": "user", "content": json.dumps(hechos, ensure_ascii=False)},
+    ]
+
+
+def _violaciones_resumen(
+    texto: str, catalogo: Sequence[Mapping[str, Any]]
+) -> list[str]:
+    violaciones: list[str] = []
+    if _productos_mencionados(texto, catalogo):
+        violaciones.append("incluye un nombre de producto")
+    if re.search(r"\d", texto):
+        violaciones.append("incluye cifras")
+    if len(texto.split()) > 60:
+        violaciones.append("supera las 60 palabras")
+    if not re.search(r'[.!?…]["»”’)\]]*$', texto.rstrip()):
+        violaciones.append("no termina con puntuación final")
+    oraciones = re.findall(r"[^.!?…]+[.!?…]+", texto.strip())
+    if not 2 <= len(oraciones) <= 3:
+        violaciones.append("no contiene dos o tres frases")
+    return violaciones
+
+
+def redactar_resumen_explicacion(
+    solicitud: Mapping[str, Any],
+    resultado: ResultadoGenetico | Mapping[str, Any],
+    catalogo: Sequence[Mapping[str, Any]],
+    *,
+    cliente: Any = None,
+    sleep_fn: Callable[[float], None] | None = None,
+) -> ExplicacionRecomendacion:
+    """Genera un resumen cualitativo y conserva el detalle factual calculado localmente."""
+    datos = _construir_datos(solicitud, resultado, catalogo)
+    detalle = _detalle_codigo(datos)
+    hechos = _hechos_cualitativos(datos)
+    try:
+        cliente_activo = cliente if cliente is not None else crear_cliente_groq()
+    except ErrorIA as error:
+        return ExplicacionRecomendacion(
+            texto=detalle,
+            usada_ia=False,
+            motivo_respaldo=str(error),
+            resumen_ia=None,
+            detalle_codigo=detalle,
+        )
+
+    aviso = None
+    fallos: list[str] = []
+    for intento in range(2):
+        try:
+            resumen = _solicitar_completado(
+                cliente_activo,
+                _prompt_resumen(hechos, aviso),
+                temperatura=config.GROQ_TEMPERATURA_EXPLICACION,
+                max_tokens=config.GROQ_MAX_TOKENS_EXPLICACION,
+                sleep_fn=sleep_fn or time.sleep,
+                reasoning_effort=config.GROQ_REASONING_EFFORT_EXPLICACION,
+            )
+        except RespuestaIATruncada:
+            fallos.append("La respuesta de la IA se cortó por límite de tokens")
+            aviso = "La respuesta anterior se cortó por límite de tokens"
+            continue
+        except ErrorLimiteVelocidad as error:
+            return ExplicacionRecomendacion(
+                texto=detalle,
+                usada_ia=False,
+                motivo_respaldo=f"Límite de velocidad de la API: {error}",
+                resumen_ia=None,
+                detalle_codigo=detalle,
+            )
+        except ErrorIA as error:
+            return ExplicacionRecomendacion(
+                texto=detalle,
+                usada_ia=False,
+                motivo_respaldo=str(error),
+                resumen_ia=None,
+                detalle_codigo=detalle,
+            )
+
+        violaciones = _violaciones_resumen(resumen, catalogo)
+        if not violaciones:
+            return ExplicacionRecomendacion(
+                texto=f"{resumen}\n\n{detalle}",
+                usada_ia=True,
+                motivo_respaldo=None,
+                resumen_ia=resumen,
+                detalle_codigo=detalle,
+            )
+        fallos.append(", ".join(violaciones))
+        aviso = "; ".join(violaciones)
+
+    motivo = "; ".join(
+        f"{'Primer intento' if indice == 0 else 'Reintento'}: {fallo}"
+        for indice, fallo in enumerate(fallos)
+    )
+    return ExplicacionRecomendacion(
+        texto=detalle,
+        usada_ia=False,
+        motivo_respaldo=motivo,
+        resumen_ia=None,
+        detalle_codigo=detalle,
+    )
