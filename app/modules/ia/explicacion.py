@@ -13,6 +13,7 @@ from app.modules.genetico import ResultadoGenetico, calcular_topes
 from .cliente import (
     ErrorIA,
     ErrorLimiteVelocidad,
+    RespuestaIATruncada,
     _solicitar_completado,
     crear_cliente_groq,
 )
@@ -250,6 +251,8 @@ def _violaciones(
     catalogo: Sequence[Mapping[str, Any]],
 ) -> list[str]:
     violaciones: list[str] = []
+    if not re.search(r'[.!?…]["»”’)\]]*$', texto.rstrip()):
+        violaciones.append("no termina con puntuación final")
     if "$" in texto:
         violaciones.append("usa el símbolo de dólar en vez de soles")
     if _TERMINOS_PROHIBIDOS.search(texto):
@@ -334,7 +337,20 @@ def redactar_explicacion(
                 temperatura=config.GROQ_TEMPERATURA_EXPLICACION,
                 max_tokens=config.GROQ_MAX_TOKENS_EXPLICACION,
                 sleep_fn=sleep_fn or time.sleep,
+                reasoning_effort=config.GROQ_REASONING_EFFORT_EXPLICACION,
             )
+        except RespuestaIATruncada:
+            if intento == 1:
+                return Explicacion(
+                    respaldo,
+                    False,
+                    "La respuesta de la IA se cortó por límite de tokens",
+                )
+            fallos_por_intento.append(
+                ["La respuesta de la IA se cortó por límite de tokens"]
+            )
+            aviso = "La respuesta anterior se cortó por límite de tokens"
+            continue
         except ErrorLimiteVelocidad as error:
             return Explicacion(
                 respaldo,

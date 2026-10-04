@@ -103,10 +103,6 @@
               <p id="fallback-reason"></p>
             </details>
           </div>
-          <section class="explanation-section" aria-labelledby="explanation-title">
-            <h3 id="explanation-title">Resumen de la propuesta</h3>
-            <p id="recommendation-explanation" class="recommendation-explanation"></p>
-          </section>
           <div class="recommendation-table-wrap">
             <table class="recommendation-table">
               <thead>
@@ -131,6 +127,34 @@
             <span class="budget-separator" aria-hidden="true">·</span>
             <span>Sobrante: <strong id="recommendation-leftover">—</strong></span>
           </p>
+          <section class="explanation-section" aria-labelledby="explanation-title">
+            <h3 id="explanation-title">Resumen de la propuesta</h3>
+            <p id="recommendation-explanation" class="recommendation-explanation"></p>
+          </section>
+          <section class="understood-section" aria-labelledby="understood-title">
+            <h3 id="understood-title">Lo que entendí de tu pedido</h3>
+            <dl class="understood-grid">
+              <div class="understood-item">
+                <dt>Presupuesto</dt>
+                <dd id="understood-budget">—</dd>
+              </div>
+              <div class="understood-item">
+                <dt>Prioridad</dt>
+                <dd id="understood-priority">—</dd>
+              </div>
+              <div class="understood-item">
+                <dt>Incluidos</dt>
+                <dd id="understood-included">—</dd>
+              </div>
+              <div class="understood-item">
+                <dt>Excluidos</dt>
+                <dd id="understood-excluded">—</dd>
+              </div>
+            </dl>
+            <p id="understood-hint" class="understood-hint" hidden>
+              ¿Falta algo? Escríbelo en el chat, por ejemplo: excluye también las galletas
+            </p>
+          </section>
         </div>
       </aside>
     </main>

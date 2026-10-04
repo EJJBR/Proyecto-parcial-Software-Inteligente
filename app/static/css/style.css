@@ -657,7 +657,7 @@ summary:focus-visible {
 }
 
 .explanation-section {
-  margin-bottom: 17px;
+  margin: 0 0 16px;
   padding: 13px;
   border-radius: 12px;
   background: #f6f9f6;
@@ -672,14 +672,59 @@ summary:focus-visible {
 }
 
 .recommendation-explanation {
-  max-height: 118px;
-  overflow-y: auto;
   margin: 0;
   color: #3d4b42;
   font-size: 12px;
   line-height: 1.55;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.understood-section {
+  padding: 14px;
+  border: 1px solid #e7eee9;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.understood-section h3 {
+  margin: 0 0 11px;
+  color: #405047;
+  font-size: 12px;
+}
+
+.understood-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.understood-item {
+  min-width: 0;
+}
+
+.understood-item dt {
+  margin-bottom: 3px;
+  color: #7a877f;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.understood-item dd {
+  margin: 0;
+  color: #35443b;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.understood-hint {
+  margin: 12px 0 0;
+  color: #68766d;
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .recommendation-table-wrap {
@@ -809,7 +854,10 @@ summary:focus-visible {
   }
 
   .recommendation-result .source-row,
-  .recommendation-result .budget-line {
+  .recommendation-result .budget-line,
+  .recommendation-result .recommendation-table-wrap,
+  .recommendation-result .explanation-section,
+  .recommendation-result .understood-section {
     grid-column: 1 / -1;
   }
 }

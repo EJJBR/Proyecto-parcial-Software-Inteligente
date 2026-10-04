@@ -208,6 +208,7 @@ def solicitud():
             motivo_respaldo=resultado.motivo_respaldo,
             id_solicitud=resultado.id_solicitud,
             id_recomendacion=resultado.id_recomendacion,
+            entendido=resultado.entendido,
         ), 200
     finally:
         if conn is not None:

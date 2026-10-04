@@ -23,6 +23,13 @@ class ErrorLimiteVelocidad(ErrorIA):
         )
 
 
+class RespuestaIATruncada(ErrorIA):
+    """La API terminó la generación por límite de tokens."""
+
+    def __init__(self) -> None:
+        super().__init__("La respuesta de la IA se cortó por límite de tokens.")
+
+
 _MAX_REINTENTOS_429 = 2
 _ESPERAS_REINTENTO_429 = (3.0, 6.0)
 _MAX_ESPERA_RETRY_AFTER = 10.0
@@ -157,6 +164,7 @@ def _solicitar_completado(
     temperatura: float,
     max_tokens: int,
     sleep_fn: Callable[[float], None] = time.sleep,
+    reasoning_effort: str | None = None,
 ) -> str:
     """Ejecuta chat.completions.create, aplicando la traduccion de errores."""
     if not config.GROQ_MODEL or config.GROQ_MODEL == "elige_un_modelo_vigente":
@@ -165,11 +173,16 @@ def _solicitar_completado(
         )
     for intento in range(_MAX_REINTENTOS_429 + 1):
         try:
+            parametros = {
+                "model": config.GROQ_MODEL,
+                "messages": mensajes,
+                "temperature": temperatura,
+                "max_tokens": max_tokens,
+            }
+            if reasoning_effort is not None:
+                parametros["reasoning_effort"] = reasoning_effort
             respuesta = cliente.chat.completions.create(
-                model=config.GROQ_MODEL,
-                messages=mensajes,
-                temperature=temperatura,
-                max_tokens=max_tokens,
+                **parametros,
             )
             break
         except Exception as error:
@@ -189,6 +202,11 @@ def _solicitar_completado(
             sleep_fn(espera)
     else:
         raise ErrorLimiteVelocidad() from None
+
+    if _valor_finish_reason(respuesta) == "length":
+        if _depuracion_activa():
+            _imprimir_diagnostico_respuesta(respuesta, None, None)
+        raise RespuestaIATruncada() from None
 
     message = None
     try:

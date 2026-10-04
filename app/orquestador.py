@@ -45,6 +45,7 @@ class ResultadoOrquestacion:
         "interno",
     ] | None = None
     id_solicitud: int | None = None
+    entendido: dict[str, Any] | None = None
 
 
 def _resultado_error(
@@ -234,4 +235,12 @@ def procesar_mensajes(
         motivo_respaldo=explicacion.motivo_respaldo,
         id_recomendacion=id_recomendacion,
         id_solicitud=id_solicitud,
+        entendido={
+            "presupuesto": float(interpretacion.solicitud["presupuesto"]),
+            "categorias_prioritarias": list(
+                interpretacion.solicitud["categorias_prioritarias"]
+            ),
+            "incluir_forzado": list(interpretacion.solicitud["incluir_forzado"]),
+            "excluir": list(interpretacion.solicitud["excluir"]),
+        },
     )

@@ -18,7 +18,16 @@
   const recommendationSource = document.querySelector("#recommendation-source");
   const fallbackDetails = document.querySelector("#fallback-details");
   const fallbackReason = document.querySelector("#fallback-reason");
+  const understoodHint = document.querySelector("#understood-hint");
   const selectedCategory = { value: "Todos" };
+  const categoryLabels = Object.freeze({
+    abarrotes: "abarrotes",
+    bebidas: "bebidas",
+    lacteos: "lácteos",
+    limpieza: "limpieza",
+    panaderia: "panadería",
+    snacks: "snacks",
+  });
   let products = [];
   let busy = false;
 
@@ -262,6 +271,28 @@
     document.querySelector("#recommendation-leftover").textContent = money(
       Number(data.presupuesto) - Number(data.costo_total),
     );
+
+    const understood = data.entendido || {};
+    const priorities = Array.isArray(understood.categorias_prioritarias)
+      ? understood.categorias_prioritarias
+      : [];
+    const included = Array.isArray(understood.incluir_forzado)
+      ? understood.incluir_forzado
+      : [];
+    const excluded = Array.isArray(understood.excluir)
+      ? understood.excluir
+      : [];
+    document.querySelector("#understood-budget").textContent =
+      understood.presupuesto == null ? "—" : money(understood.presupuesto);
+    document.querySelector("#understood-priority").textContent =
+      priorities.length
+        ? priorities.map((category) => categoryLabels[category] || category).join(", ")
+        : "ninguna";
+    document.querySelector("#understood-included").textContent =
+      included.length ? included.join(", ") : "ninguno";
+    document.querySelector("#understood-excluded").textContent =
+      excluded.length ? excluded.join(", ") : "ninguno";
+    understoodHint.hidden = included.length === 0 && excluded.length === 0;
   };
 
   const sendMessage = async (message) => {
