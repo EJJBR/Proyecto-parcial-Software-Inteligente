@@ -1,6 +1,7 @@
-"""Optimizacion de cantidades de compra mediante un algoritmo genetico."""
+"""Optimizacion genetica con minimos forzados aplicados como paso final."""
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from math import ceil
 import random
 from typing import Any
 
@@ -69,16 +70,47 @@ def _preparar_restricciones(
 
 
 def calcular_topes(catalogo: Sequence[Producto]) -> list[int]:
-    """Calcula el maximo permitido de cada gen, en el orden del catalogo."""
+    """Calcula los topes individuales de los genes en el orden del catalogo."""
     if len(catalogo) != config.NUM_GENES:
         raise ValueError(f"El catalogo debe tener {config.NUM_GENES} productos.")
-    return [
-        round(
-            config.CANTIDAD_MAX
-            * (1 - config.COEFICIENTE_RIESGO_CADENA * riesgo_merma(producto["dias_vida_util"]))
+    return [_tope_producto(producto) for producto in catalogo]
+
+
+def _tope_producto(producto: Producto) -> int:
+    """Calcula el tope de un producto a partir de su riesgo de merma."""
+    return round(
+        config.CANTIDAD_MAX
+        * (1 - config.COEFICIENTE_RIESGO_CADENA * riesgo_merma(producto["dias_vida_util"]))
+    )
+
+
+def calcular_minimos_forzados(
+    catalogo: Sequence[Producto], indices_forzados: set[int]
+) -> dict[int, int]:
+    """Calcula el mínimo de una semana de ventas para cada índice forzado."""
+    return {
+        indice: min(
+            _tope_producto(catalogo[indice]),
+            max(
+                1,
+                ceil(
+                    float(catalogo[indice]["ventas_4sem"])
+                    / config.SEMANAS_VENTANA_VENTAS
+                ),
+            ),
         )
-        for producto in catalogo
-    ]
+        for indice in indices_forzados
+    }
+
+
+def _aplicar_minimos_forzados(
+    cromosoma: Sequence[int], minimos: Mapping[int, int]
+) -> list[int]:
+    """Devuelve una copia del cromosoma elevando solo los forzados bajo su mínimo."""
+    copia = list(cromosoma)
+    for indice, minimo in minimos.items():
+        copia[indice] = max(copia[indice], minimo)
+    return copia
 
 
 def evaluar_cromosoma(
@@ -138,8 +170,15 @@ def _reparar_presupuesto(
     solicitud: Solicitud,
     indices_forzados: set[int],
     indices_excluidos: set[int],
+    minimos: Mapping[int, int] | None = None,
 ) -> tuple[list[int], float, float, bool]:
+    """Reduce unidades para caber en el presupuesto sin bajar mínimos forzados."""
     copia = list(cromosoma)
+    minimos_activos = (
+        minimos
+        if minimos is not None
+        else calcular_minimos_forzados(catalogo, indices_forzados)
+    )
     costo, fitness = evaluar_cromosoma(copia, catalogo, solicitud)
     if costo <= solicitud["presupuesto"] + TOLERANCIA_PRESUPUESTO:
         return copia, costo, fitness, False
@@ -149,7 +188,7 @@ def _reparar_presupuesto(
         mejor_costo = costo
         mejor_fitness = float("-inf")
         for indice, cantidad in enumerate(copia):
-            minimo = 1 if indice in indices_forzados else 0
+            minimo = minimos_activos.get(indice, 0)
             if indice in indices_excluidos or cantidad <= minimo:
                 continue
             candidato = copia[:]
@@ -175,12 +214,14 @@ def _reparar_presupuesto(
 def ejecutar_algoritmo_genetico(
     catalogo: Sequence[Producto], solicitud: Solicitud, semilla: int | None = None
 ) -> ResultadoGenetico:
-    """Optimiza la solicitud y devuelve mejor cromosoma, costo, fitness e historial."""
+    """Optimiza y aplica mínimos de una semana a forzados solo en el paso final."""
     if len(catalogo) != config.NUM_GENES:
         raise ValueError(f"El catalogo debe tener {config.NUM_GENES} productos.")
     indices_forzados, indices_excluidos = _preparar_restricciones(catalogo, solicitud)
+    minimos_forzados = calcular_minimos_forzados(catalogo, indices_forzados)
     costo_minimo_forzados = sum(
-        float(catalogo[indice]["precio_compra"]) for indice in indices_forzados
+        float(catalogo[indice]["precio_compra"]) * minimos_forzados[indice]
+        for indice in indices_forzados
     )
     if costo_minimo_forzados > solicitud["presupuesto"] + TOLERANCIA_PRESUPUESTO:
         raise PresupuestoInviableError(
@@ -246,11 +287,15 @@ def ejecutar_algoritmo_genetico(
         fitness_final,
         reparado,
     ) = _reparar_presupuesto(
-        mejor_cromosoma,
+        _aplicar_minimos_forzados(mejor_cromosoma, minimos_forzados),
         catalogo,
         solicitud,
         indices_forzados,
         indices_excluidos,
+        minimos_forzados,
+    )
+    costo_final, fitness_final = evaluar_cromosoma(
+        cromosoma_final, catalogo, solicitud
     )
     return ResultadoGenetico(
         cromosoma_final,
