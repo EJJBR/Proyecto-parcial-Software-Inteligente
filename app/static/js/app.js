@@ -282,6 +282,12 @@
     const priorities = Array.isArray(understood.categorias_prioritarias)
       ? understood.categorias_prioritarias
       : [];
+    const priorityProducts = Array.isArray(understood.prioridad_productos)
+      ? understood.prioridad_productos
+      : [];
+    const mandatoryProducts = Array.isArray(understood.obligatorios)
+      ? understood.obligatorios
+      : [];
     const included = Array.isArray(understood.incluir_forzado)
       ? understood.incluir_forzado
       : [];
@@ -290,10 +296,13 @@
       : [];
     document.querySelector("#understood-budget").textContent =
       understood.presupuesto == null ? "—" : money(understood.presupuesto);
+    const priorityLabels = [
+      ...priorities.map((category) => categoryLabels[category] || category),
+      ...priorityProducts.map((product) => `${product} (prioridad)`),
+      ...mandatoryProducts.map((product) => `${product} (sí o sí)`),
+    ];
     document.querySelector("#understood-priority").textContent =
-      priorities.length
-        ? priorities.map((category) => categoryLabels[category] || category).join(", ")
-        : "ninguna";
+      priorityLabels.length ? priorityLabels.join(", ") : "ninguna";
     document.querySelector("#understood-included").textContent =
       included.length ? included.join(", ") : "ninguno";
     document.querySelector("#understood-excluded").textContent =

@@ -63,6 +63,8 @@ def test_orquestador_devuelve_entendido_con_nombres_canonicos(conn, monkeypatch)
     assert resultado.entendido == {
         "presupuesto": 1500.0,
         "categorias_prioritarias": ["panaderia", "lacteos"],
+        "prioridad_productos": [],
+        "obligatorios": [],
         "incluir_forzado": ["Arroz"],
         "excluir": ["Detergente"],
     }
@@ -90,6 +92,8 @@ def test_ruta_devuelve_entendido_solo_en_recomendacion(
     entendido = {
         "presupuesto": 1500.0,
         "categorias_prioritarias": ["panaderia", "lacteos"],
+        "prioridad_productos": ["Aceite"],
+        "obligatorios": ["Arroz"],
         "incluir_forzado": ["Arroz"],
         "excluir": ["Detergente"],
     }

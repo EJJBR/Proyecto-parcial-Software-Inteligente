@@ -153,6 +153,12 @@ def _construir_datos(
         "presupuesto_limito_la_compra": presupuesto_limito,
         "productos_perecibles_con_limite": perecibles_limitados,
         "categorias_prioritarias": list(solicitud.get("categorias_prioritarias", [])),
+        "productos_priorizados_a_pedido": list(
+            solicitud.get("prioridad_productos", [])
+        ),
+        "productos_obligatorios_a_pedido": list(
+            solicitud.get("obligatorios", [])
+        ),
         "productos_incluidos_a_solicitud": list(solicitud.get("incluir_forzado", [])),
         "productos_excluidos_a_solicitud": list(solicitud.get("excluir", [])),
     }
@@ -432,6 +438,12 @@ def _detalle_codigo(datos: Mapping[str, Any]) -> str:
         partes.append(
             "Productos incluidos a pedido: " + ", ".join(incluidos) + "."
         )
+    priorizados = datos["productos_priorizados_a_pedido"]
+    if priorizados:
+        partes.append("Productos priorizados a pedido: " + ", ".join(priorizados) + ".")
+    obligatorios = datos["productos_obligatorios_a_pedido"]
+    if obligatorios:
+        partes.append("Productos obligatorios a pedido: " + ", ".join(obligatorios) + ".")
     excluidos = datos["productos_excluidos_a_solicitud"]
     if excluidos:
         partes.append(
@@ -474,6 +486,12 @@ def _hechos_cualitativos(datos: Mapping[str, Any]) -> dict[str, Any]:
         "hubo_productos_excluidos_a_pedido": bool(
             datos["productos_excluidos_a_solicitud"]
         ),
+        "productos_priorizados_a_pedido": list(
+            datos["productos_priorizados_a_pedido"]
+        ),
+        "productos_obligatorios_a_pedido": list(
+            datos["productos_obligatorios_a_pedido"]
+        ),
         "porcentaje_aproximado_del_presupuesto_usado": (
             _porcentaje_aproximado_usado(datos)
         ),
@@ -486,10 +504,12 @@ def _prompt_resumen(
     instrucciones = (
         "Redacta únicamente un resumen cualitativo de dos o tres frases en español "
         "claro y natural para el dueño de una bodega. Usa solo los hechos recibidos. "
-        "No incluyas nombres de productos, cifras, números, porcentajes, listas ni "
-        "cantidades. No afirmes datos que no aparezcan en los hechos. Menciona de forma "
-        "breve la situación del presupuesto, las categorías priorizadas cuando existan "
-        "y si se atendieron inclusiones o exclusiones pedidas, sin nombrar productos. "
+        "No incluyas cifras, números, porcentajes, listas ni cantidades. Solo puedes "
+        "mencionar nombres de productos que aparezcan en productos_priorizados_a_pedido "
+        "o productos_obligatorios_a_pedido; no nombres otros productos. No afirmes datos "
+        "que no aparezcan en los hechos. Menciona de forma breve la situación del "
+        "presupuesto, las categorías priorizadas cuando existan y las prioridades "
+        "puntuales si aparecen en esos campos. "
         "El resumen no reemplaza el detalle factual que se presenta por separado."
     )
     if aviso:
@@ -501,12 +521,23 @@ def _prompt_resumen(
 
 
 def _violaciones_resumen(
-    texto: str, catalogo: Sequence[Mapping[str, Any]]
+    texto: str,
+    catalogo: Sequence[Mapping[str, Any]],
+    productos_permitidos: Sequence[str] = (),
 ) -> list[str]:
     violaciones: list[str] = []
-    if _productos_mencionados(texto, catalogo):
-        violaciones.append("incluye un nombre de producto")
-    if re.search(r"\d", texto):
+    productos_mencionados = _productos_mencionados(texto, catalogo)
+    if productos_mencionados - set(productos_permitidos):
+        violaciones.append("incluye un nombre de producto no solicitado como prioridad")
+    texto_sin_prioridades = _normalizar(texto)
+    for nombre in sorted(productos_permitidos, key=len, reverse=True):
+        nombre_normalizado = _normalizar(nombre)
+        texto_sin_prioridades = re.sub(
+            r"(?<!\w)" + re.escape(nombre_normalizado) + r"(?!\w)",
+            "",
+            texto_sin_prioridades,
+        )
+    if re.search(r"\d", texto_sin_prioridades):
         violaciones.append("incluye cifras")
     if len(texto.split()) > 60:
         violaciones.append("supera las 60 palabras")
@@ -574,7 +605,13 @@ def redactar_resumen_explicacion(
                 detalle_codigo=detalle,
             )
 
-        violaciones = _violaciones_resumen(resumen, catalogo)
+        productos_permitidos = [
+            *hechos["productos_priorizados_a_pedido"],
+            *hechos["productos_obligatorios_a_pedido"],
+        ]
+        violaciones = _violaciones_resumen(
+            resumen, catalogo, productos_permitidos
+        )
         if not violaciones:
             return ExplicacionRecomendacion(
                 texto=f"{resumen}\n\n{detalle}",

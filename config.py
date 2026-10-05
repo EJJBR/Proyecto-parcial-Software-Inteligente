@@ -23,6 +23,9 @@ DB_PATH = Path(os.getenv("BODEGA_DB_PATH", BASE_DIR / "data" / "bodega.db"))
 SCHEMA_SQL = BASE_DIR / "data" / "schema.sql"
 SEED_SQL = BASE_DIR / "data" / "seed.sql"
 SEMANAS_VENTANA_VENTAS = 4  # score_demanda se calcula con las ventas de las ultimas 4 semanas
+FACTOR_PRIORIDAD_PRODUCTO = 1.5  # Valor inicial a calibrar.
+SEMANAS_COBERTURA_FORZADO = 1  # Valor inicial a calibrar.
+SEMANAS_COBERTURA_OBLIGATORIO = 2  # Valor inicial a calibrar.
 
 # --- IA generativa (se usa a partir del paso 5) ---------------------------------------
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip() or None

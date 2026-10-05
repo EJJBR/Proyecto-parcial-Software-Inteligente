@@ -75,6 +75,50 @@ def test_resumen_valido_se_acepta_y_envia_solo_hechos_cualitativos(hechos):
     assert not any(char.isdigit() for char in cliente.llamadas[0]["messages"][1]["content"])
 
 
+def test_hechos_y_resumen_incluyen_prioridades_de_producto(hechos):
+    solicitud, resultado, catalogo = hechos
+    solicitud = {
+        **solicitud,
+        "prioridad_productos": ["Aceite"],
+        "obligatorios": ["Arroz"],
+    }
+    resumen = (
+        "El presupuesto permitió atender la compra priorizada. "
+        "Se consideraron Aceite y Arroz como productos solicitados."
+    )
+    cliente = ClienteFalso([resumen])
+
+    explicacion = redactar_resumen_explicacion(
+        solicitud, resultado, catalogo, cliente=cliente
+    )
+
+    hechos_enviados = json.loads(cliente.llamadas[0]["messages"][1]["content"])
+    assert hechos_enviados["productos_priorizados_a_pedido"] == ["Aceite"]
+    assert hechos_enviados["productos_obligatorios_a_pedido"] == ["Arroz"]
+    assert "Productos priorizados a pedido: Aceite." in explicacion.detalle_codigo
+    assert "Productos obligatorios a pedido: Arroz." in explicacion.detalle_codigo
+    assert explicacion.usada_ia is True
+    assert explicacion.resumen_ia == resumen
+
+
+def test_resumen_rechaza_productos_no_priorizados(hechos):
+    solicitud, resultado, catalogo = hechos
+    solicitud = {**solicitud, "prioridad_productos": ["Aceite"]}
+    resumen_invalido = (
+        "El presupuesto permitió priorizar Aceite y atender la compra. "
+        "También se recomienda Galletas Oreo por su demanda."
+    )
+    cliente = ClienteFalso([resumen_invalido, RESUMEN_VALIDO])
+
+    explicacion = redactar_resumen_explicacion(
+        solicitud, resultado, catalogo, cliente=cliente
+    )
+
+    assert explicacion.usada_ia is True
+    assert explicacion.resumen_ia == RESUMEN_VALIDO
+    assert len(cliente.llamadas) == 2
+
+
 def test_nombre_de_producto_se_reintenta_y_respaldo_no_revela_respuesta(hechos):
     solicitud, resultado, catalogo = hechos
     texto_secreto = "Arroz mantiene una buena salida. Clave de prueba CONFIDENCIAL."

@@ -137,8 +137,15 @@ def procesar_mensajes(
         return ResultadoOrquestacion(tipo="aclaracion", mensaje=pregunta)
 
     try:
+        solicitud_genetica = {
+            **interpretacion.solicitud,
+            "prioridad_productos": interpretacion.solicitud.get(
+                "prioridad_productos", []
+            ),
+            "obligatorios": interpretacion.solicitud.get("obligatorios", []),
+        }
         resultado_genetico = ejecutar_algoritmo_genetico(
-            catalogo, interpretacion.solicitud, semilla=semilla
+            catalogo, solicitud_genetica, semilla=semilla
         )
         explicacion: ExplicacionRecomendacion = redactar_resumen_explicacion(
             interpretacion.solicitud,
@@ -241,6 +248,12 @@ def procesar_mensajes(
             "presupuesto": float(interpretacion.solicitud["presupuesto"]),
             "categorias_prioritarias": list(
                 interpretacion.solicitud["categorias_prioritarias"]
+            ),
+            "prioridad_productos": list(
+                interpretacion.solicitud.get("prioridad_productos", [])
+            ),
+            "obligatorios": list(
+                interpretacion.solicitud.get("obligatorios", [])
             ),
             "incluir_forzado": list(interpretacion.solicitud["incluir_forzado"]),
             "excluir": list(interpretacion.solicitud["excluir"]),
