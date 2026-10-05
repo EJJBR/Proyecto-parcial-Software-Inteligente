@@ -45,6 +45,17 @@ def test_javascript_no_usa_insercion_html_dinamica(tmp_path):
     assert "document.write" not in javascript
 
 
+def test_bloque_entendido_muestra_prioridades_de_producto(tmp_path):
+    respuesta = _app(tmp_path).test_client().get("/static/js/app.js")
+    javascript = respuesta.get_data(as_text=True)
+
+    assert respuesta.status_code == 200
+    assert "understood.prioridad_productos" in javascript
+    assert "understood.obligatorios" in javascript
+    assert "(prioridad)" in javascript
+    assert "(sí o sí)" in javascript
+
+
 def test_interfaz_no_carga_recursos_externos(tmp_path):
     cliente = _app(tmp_path).test_client()
     html = cliente.get("/").get_data(as_text=True)

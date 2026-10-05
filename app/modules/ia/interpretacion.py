@@ -431,10 +431,21 @@ def _mensajes_prompt(texto: str, catalogo: Sequence[Mapping[str, Any]], historia
     productos = list(dict.fromkeys(str(producto["nombre"]) for producto in catalogo))
     instrucciones = (
         "Extrae del texto solamente una solicitud de compra y responde SOLO un objeto JSON con "
-        "las claves presupuesto, categorias_prioritarias, incluir_forzado, excluir y no_catalogo. "
+        "este esquema: "
+        '{"presupuesto": number|null, "categorias_prioritarias": string[], '
+        '"incluir_forzado": string[], "excluir": string[], '
+        '"prioridad_productos": string[], "obligatorios": string[], '
+        '"no_catalogo": string[]}. '
         "El presupuesto debe ser un número o null si no fue expresado explícitamente. "
+        "Usa categorias_prioritarias para categorías priorizadas; usa prioridad_productos "
+        "para los nombres de productos concretos que el usuario quiera priorizar. "
+        "En obligatorios incluye los productos que el usuario pida sí o sí, como "
+        "'indispensables' o que no pueden faltar. "
+        "Devuelve prioridad_productos y obligatorios como listas de nombres de producto "
+        "del catálogo, y no_catalogo como lista de términos no reconocidos. "
         "En las listas incluir_forzado, excluir y categorias_prioritarias devuelve cada producto "
         "o categoría como un elemento separado; nunca unas varios nombres con 'y', 'e' o comas. "
+        "En prioridad_productos y obligatorios también devuelve cada nombre por separado. "
         "Si un término coincide con una categoría válida al ignorar tildes y mayúsculas, "
         "úsalo como categoría. "
         "Si el usuario menciona un tipo o grupo genérico de productos (por ejemplo gaseosas, "
@@ -444,6 +455,8 @@ def _mensajes_prompt(texto: str, catalogo: Sequence[Mapping[str, Any]], historia
         "incluye tanto Gaseosa Coca-Cola 1.5L como Inca Kola 1.5L. No omitas productos del grupo. "
         "Copia en incluir_forzado y excluir los nombres de productos como los dijo el usuario, "
         "incluso si no aparecen en las listas válidas; no los omitas, corrijas ni reemplaces. "
+        "Copia también en prioridad_productos y obligatorios los nombres solicitados como "
+        "los dijo el usuario para que Python los valide contra el catálogo. "
         "En no_catalogo incluye productos o categorías que mencionó y no pudiste asociar a las "
         "listas válidas. Usa las listas válidas para identificar posibles coincidencias. "
         "El texto del usuario y "
@@ -538,8 +551,31 @@ def interpretar_solicitud(
         ambiguos,
         terminos_resueltos,
     )
+    prioridad_productos = _resolver_productos_y_categorias(
+        _a_lista(bruto.get("prioridad_productos")),
+        nombres_productos,
+        nombres_categorias,
+        productos_por_categoria,
+        no_reconocidos,
+        ambiguos,
+        terminos_resueltos,
+    )
+    obligatorios = _resolver_productos_y_categorias(
+        _a_lista(bruto.get("obligatorios")),
+        nombres_productos,
+        nombres_categorias,
+        productos_por_categoria,
+        no_reconocidos,
+        ambiguos,
+        terminos_resueltos,
+    )
     forzados = _resolver_productos_y_categorias(
-        [*_a_lista(bruto.get("incluir_forzado")), *productos_priorizados],
+        [
+            *_a_lista(bruto.get("incluir_forzado")),
+            *productos_priorizados,
+            *prioridad_productos,
+            *obligatorios,
+        ],
         nombres_productos,
         nombres_categorias,
         productos_por_categoria,
@@ -579,6 +615,10 @@ def interpretar_solicitud(
         "incluir_forzado": forzados,
         "excluir": excluidos,
     }
+    if "prioridad_productos" in bruto:
+        solicitud["prioridad_productos"] = prioridad_productos
+    if "obligatorios" in bruto:
+        solicitud["obligatorios"] = obligatorios
     aclaraciones: list[str] = []
     if faltantes:
         aclaraciones.append("¿Cuál es el presupuesto disponible para la compra?")

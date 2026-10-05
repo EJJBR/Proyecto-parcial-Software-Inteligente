@@ -1,5 +1,5 @@
-"""Optimizacion genetica con minimos forzados aplicados como paso final."""
-from collections.abc import Mapping, Sequence
+"""Prioridades elevan demanda; obligatorios relajan topes y reciben minimo de cobertura."""
+from collections.abc import Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass
 from math import ceil
 import random
@@ -85,22 +85,80 @@ def _tope_producto(producto: Producto) -> int:
 
 
 def calcular_minimos_forzados(
-    catalogo: Sequence[Producto], indices_forzados: set[int]
+    catalogo: Sequence[Producto],
+    indices_forzados: set[int],
+    indices_obligatorios: AbstractSet[int] = frozenset(),
 ) -> dict[int, int]:
-    """Calcula el mínimo de una semana de ventas para cada índice forzado."""
-    return {
-        indice: min(
-            _tope_producto(catalogo[indice]),
+    """Calcula cobertura mínima semanal para forzados y quincenal para obligatorios."""
+    minimos = {}
+    for indice in indices_forzados:
+        es_obligatorio = indice in indices_obligatorios
+        semanas = (
+            config.SEMANAS_COBERTURA_OBLIGATORIO
+            if es_obligatorio
+            else config.SEMANAS_COBERTURA_FORZADO
+        )
+        tope = config.CANTIDAD_MAX if es_obligatorio else _tope_producto(catalogo[indice])
+        minimos[indice] = min(
+            tope,
             max(
                 1,
                 ceil(
                     float(catalogo[indice]["ventas_4sem"])
+                    * semanas
                     / config.SEMANAS_VENTANA_VENTAS
                 ),
             ),
         )
-        for indice in indices_forzados
+    return minimos
+
+
+def _preparar_prioridades(
+    catalogo: Sequence[Producto], solicitud: Solicitud
+) -> tuple[dict[int, float], set[int]]:
+    """Resuelve nombres priorizados y obligatorios a índices del catálogo."""
+    indices_por_nombre: dict[str, int] = {}
+    for indice, producto in enumerate(catalogo):
+        nombre = producto["nombre"]
+        if nombre in indices_por_nombre:
+            raise ValueError(f"Nombre de producto duplicado en el catalogo: {nombre!r}.")
+        indices_por_nombre[nombre] = indice
+
+    nombres_prioritarios = solicitud.get("prioridad_productos", ())
+    nombres_obligatorios = solicitud.get("obligatorios", ())
+    nombres_forzados = set(solicitud.get("incluir_forzado", ()))
+
+    indices_prioritarios: set[int] = set()
+    indices_obligatorios: set[int] = set()
+    for nombres, indices, tipo in (
+        (nombres_prioritarios, indices_prioritarios, "prioritario"),
+        (nombres_obligatorios, indices_obligatorios, "obligatorio"),
+    ):
+        for nombre in nombres:
+            if nombre not in indices_por_nombre:
+                raise ValueError(f"Producto {tipo} desconocido: {nombre!r}.")
+            if tipo == "obligatorio" and nombre not in nombres_forzados:
+                raise ValueError(
+                    f"El producto obligatorio {nombre!r} también debe estar en incluir_forzado."
+                )
+            indices.add(indices_por_nombre[nombre])
+
+    indices_con_prioridad = indices_prioritarios | indices_obligatorios
+    factores = {
+        indice: config.FACTOR_PRIORIDAD_PRODUCTO
+        for indice in indices_con_prioridad
     }
+    return factores, indices_obligatorios
+
+
+def _aplicar_topes_obligatorios(
+    topes: Sequence[int], indices_obligatorios: set[int]
+) -> list[int]:
+    """Devuelve topes copiados, elevando los obligatorios sin bajar ninguno."""
+    topes_ajustados = list(topes)
+    for indice in indices_obligatorios:
+        topes_ajustados[indice] = max(topes_ajustados[indice], config.CANTIDAD_MAX)
+    return topes_ajustados
 
 
 def _aplicar_minimos_forzados(
@@ -116,19 +174,23 @@ def _aplicar_minimos_forzados(
 def evaluar_cromosoma(
     cromosoma: Sequence[int], catalogo: Sequence[Producto], solicitud: Solicitud
 ) -> tuple[float, float]:
-    """Devuelve (costo_total, fitness); no recorta el cromosoma a los topes."""
+    """Devuelve costo y fitness, aumentando ventas difusas de productos prioritarios."""
     if len(cromosoma) != len(catalogo):
         raise ValueError("El cromosoma debe tener un gen por cada producto del catalogo.")
     indices_forzados, indices_excluidos = _preparar_restricciones(catalogo, solicitud)
+    factores_prioridad, _ = _preparar_prioridades(catalogo, solicitud)
 
     costo_total = 0.0
     parte_positiva = 0.0
-    for cantidad, producto in zip(cromosoma, catalogo):
+    for indice, (cantidad, producto) in enumerate(zip(cromosoma, catalogo)):
         costo_total += cantidad * producto["precio_compra"]
+        ventas_4sem = producto["ventas_4sem"]
+        if indice in factores_prioridad:
+            ventas_4sem *= factores_prioridad[indice]
         parte_positiva += (
             cantidad
             * producto["precio_venta"]
-            * score_demanda(producto["ventas_4sem"])
+            * score_demanda(ventas_4sem)
             * peso_categoria(producto["categoria"], solicitud["categorias_prioritarias"])
         )
 
@@ -177,7 +239,11 @@ def _reparar_presupuesto(
     minimos_activos = (
         minimos
         if minimos is not None
-        else calcular_minimos_forzados(catalogo, indices_forzados)
+        else calcular_minimos_forzados(
+            catalogo,
+            indices_forzados,
+            _preparar_prioridades(catalogo, solicitud)[1],
+        )
     )
     costo, fitness = evaluar_cromosoma(copia, catalogo, solicitud)
     if costo <= solicitud["presupuesto"] + TOLERANCIA_PRESUPUESTO:
@@ -214,11 +280,14 @@ def _reparar_presupuesto(
 def ejecutar_algoritmo_genetico(
     catalogo: Sequence[Producto], solicitud: Solicitud, semilla: int | None = None
 ) -> ResultadoGenetico:
-    """Optimiza y aplica mínimos de una semana a forzados solo en el paso final."""
+    """Optimiza y aplica mínimos de forzados y obligatorios en el paso final."""
     if len(catalogo) != config.NUM_GENES:
         raise ValueError(f"El catalogo debe tener {config.NUM_GENES} productos.")
     indices_forzados, indices_excluidos = _preparar_restricciones(catalogo, solicitud)
-    minimos_forzados = calcular_minimos_forzados(catalogo, indices_forzados)
+    _, indices_obligatorios = _preparar_prioridades(catalogo, solicitud)
+    minimos_forzados = calcular_minimos_forzados(
+        catalogo, indices_forzados, indices_obligatorios
+    )
     costo_minimo_forzados = sum(
         float(catalogo[indice]["precio_compra"]) * minimos_forzados[indice]
         for indice in indices_forzados
@@ -227,7 +296,9 @@ def ejecutar_algoritmo_genetico(
         raise PresupuestoInviableError(
             "El costo mínimo de los productos obligatorios supera el presupuesto."
         )
-    topes = calcular_topes(catalogo)
+    topes = _aplicar_topes_obligatorios(
+        calcular_topes(catalogo), indices_obligatorios
+    )
     rng = random.Random(semilla)
 
     poblacion = []
